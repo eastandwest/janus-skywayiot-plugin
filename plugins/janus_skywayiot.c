@@ -1086,10 +1086,6 @@ static void *janus_skywayiot_data_thread() {
         gateway->relay_data(g_data_handle, buff, strlen(buff));
       }
 
-      g_snprintf(sendbuff, 15 + strlen(buff), "SSG:data/echo: %s", buff);
-      *(sendbuff + 15 + strlen(buff)) = "\0";
-      bytes = sendto(g_data_fd, sendbuff, strlen(sendbuff), 0, (struct sockaddr*)&g_data_remaddr, len);
-
       if(bytes == -1) {
         JANUS_LOG(LOG_WARN, "failed to sendto : %s\n", strerror(errno));
       } else {
