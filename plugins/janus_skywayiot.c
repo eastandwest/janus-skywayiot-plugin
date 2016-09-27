@@ -487,11 +487,11 @@ char *janus_skywayiot_query_session(janus_plugin_session *handle) {
 
 struct janus_plugin_result *janus_skywayiot_handle_message(janus_plugin_session *handle, char *transaction, char *message, char *sdp_type, char *sdp) {
   if(g_atomic_int_get(&stopping) || !g_atomic_int_get(&initialized))
-    return janus_plugin_result_new(JANUS_PLUGIN_ERROR, g_atomic_int_get(&stopping) ? "Shutting down" : "Plugin not initialized");
+    return janus_plugin_result_new(JANUS_PLUGIN_ERROR, g_atomic_int_get(&stopping) ? "Shutting down" : "Plugin not initialized", NULL);
   janus_skywayiot_message *msg = g_malloc0(sizeof(janus_skywayiot_message));
   if(msg == NULL) {
     JANUS_LOG(LOG_FATAL, "Memory error!\n");
-    return janus_plugin_result_new(JANUS_PLUGIN_ERROR, "Memory error");
+    return janus_plugin_result_new(JANUS_PLUGIN_ERROR, "Memory error", NULL);
   }
   msg->handle = handle;
   msg->transaction = transaction;
@@ -501,7 +501,7 @@ struct janus_plugin_result *janus_skywayiot_handle_message(janus_plugin_session 
   g_async_queue_push(messages, msg);
 
   /* All the requests to this plugin are handled asynchronously */
-  return janus_plugin_result_new(JANUS_PLUGIN_OK_WAIT, "I'm taking my time!");
+  return janus_plugin_result_new(JANUS_PLUGIN_OK_WAIT, "I'm taking my time!", NULL);
 }
 
 void janus_skywayiot_setup_media(janus_plugin_session *handle) {
@@ -658,7 +658,7 @@ void janus_skywayiot_slow_link(janus_plugin_session *handle, int uplink, int vid
       json_decref(event);
       json_decref(result);
       event = NULL;
-      gateway->push_event(session->handle, &janus_skywayiot_plugin, NULL, event_text, NULL, NULL);
+      gateway->push_event(session->handle, &janus_skywayiot_plugin, NULL, event, NULL);
       g_free(event_text);
     }
   }
@@ -684,7 +684,7 @@ void janus_skywayiot_hangup_media(janus_plugin_session *handle) {
   char *event_text = json_dumps(event, JSON_INDENT(3) | JSON_PRESERVE_ORDER);
   json_decref(event);
   JANUS_LOG(LOG_VERB, "Pushing event: %s\n", event_text);
-  int ret = gateway->push_event(handle, &janus_skywayiot_plugin, NULL, event_text, NULL, NULL);
+  int ret = gateway->push_event(handle, &janus_skywayiot_plugin, NULL, event, NULL);
   JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
   g_free(event_text);
   /* Get rid of the recorders, if available */
@@ -931,7 +931,7 @@ static void *janus_skywayiot_handler(void *data) {
     json_decref(event);
     JANUS_LOG(LOG_VERB, "Pushing event: %s\n", event_text);
     if(!msg->sdp) {
-      int ret = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event_text, NULL, NULL);
+      int ret = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event, NULL);
       JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
     } else {
       /* Forward the same offer to the gateway, to start the echo test */
@@ -970,7 +970,7 @@ static void *janus_skywayiot_handler(void *data) {
       /* How long will the gateway take to push the event? */
       g_atomic_int_set(&session->hangingup, 0);
       gint64 start = janus_get_monotonic_time();
-      int res = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event_text, type, sdp);
+      int res = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event, sdp);
       JANUS_LOG(LOG_VERB, "  >> Pushing event: %d (took %"SCNu64" us)\n",
         res, janus_get_monotonic_time()-start);
       g_free(sdp);
@@ -991,7 +991,7 @@ error:
       char *event_text = json_dumps(event, JSON_INDENT(3) | JSON_PRESERVE_ORDER);
       json_decref(event);
       JANUS_LOG(LOG_VERB, "Pushing event: %s\n", event_text);
-      int ret = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event_text, NULL, NULL);
+      int ret = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event, NULL);
       JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
       g_free(event_text);
       janus_skywayiot_message_free(msg);
