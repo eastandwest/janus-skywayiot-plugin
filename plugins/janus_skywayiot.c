@@ -970,6 +970,7 @@ static void *janus_skywayiot_handler(void *data) {
       /* How long will the gateway take to push the event? */
       g_atomic_int_set(&session->hangingup, 0);
       gint64 start = janus_get_monotonic_time();
+      printf("%s", sdp);
       int res = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event, sdp);
       JANUS_LOG(LOG_VERB, "  >> Pushing event: %d (took %"SCNu64" us)\n",
         res, janus_get_monotonic_time()-start);
