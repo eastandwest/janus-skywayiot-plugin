@@ -101,8 +101,8 @@
 
 
 /* Plugin information */
-#define JANUS_SKYWAYIOT_VERSION      1
-#define JANUS_SKYWAYIOT_VERSION_STRING  "0.0.1"
+#define JANUS_SKYWAYIOT_VERSION      2
+#define JANUS_SKYWAYIOT_VERSION_STRING  "0.0.2"
 #define JANUS_SKYWAYIOT_DESCRIPTION    "This is a SkyWay IoT plugin for Janus."
 #define JANUS_SKYWAYIOT_NAME        "JANUS SkyWay IoT plugin"
 #define JANUS_SKYWAYIOT_AUTHOR      "Kensaku Komatsu"
@@ -204,7 +204,7 @@ static int g_media_fd;
 static struct sockaddr_in g_data_remaddr;
 static struct sockaddr_in g_media_remaddr;
 static janus_plugin_session *g_data_handle;
-static janus_plugin_session *g_media_handle;
+/* static janus_plugin_session *g_media_handle; */
 
 
 static void janus_skywayiot_message_free(janus_skywayiot_message *msg) {
