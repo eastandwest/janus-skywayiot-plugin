@@ -1,8 +1,8 @@
 /*! \file   janus_skywayiot.c
  * \author Kensaku Komatsu <kensaku.komatsu@gmail.com>
  * \copyright GNU General Public License v3
- * \brief  Janus EchoTest plugin
- * \details  This is a trivial EchoTest plugin for Janus, just used to
+ * \brief  Janus SkywayIoT plugin
+ * \details  This is a trivial SkywayIoT plugin for Janus, just used to
  * showcase the plugin interface. A peer attaching to this plugin will
  * receive back the same RTP packets and RTCP messages he sends: the
  * RTCP messages, of course, would be modified on the way by the gateway
@@ -52,7 +52,7 @@
  *
 \verbatim
 {
-  "echotest" : "event",
+  "skywayiot" : "event",
   "result": "ok"
 }
 \endverbatim
@@ -62,7 +62,7 @@
  *
 \verbatim
 {
-  "echotest" : "event",
+  "skywayiot" : "event",
   "error_code" : <numeric ID, check Macros below>,
   "error" : "<error description as a string>"
 }
@@ -74,7 +74,7 @@
  *
 \verbatim
 {
-  "echotest" : "event",
+  "skywayiot" : "event",
   "result": "done"
 }
 \endverbatim
@@ -235,7 +235,7 @@ static void janus_skywayiot_message_free(janus_skywayiot_message *msg) {
 /* SkywayIoT watchdog/garbage collector (sort of) */
 void *janus_skywayiot_watchdog(void *data);
 void *janus_skywayiot_watchdog(void *data) {
-  JANUS_LOG(LOG_INFO, "EchoTest watchdog started\n");
+  JANUS_LOG(LOG_INFO, "SkywayIoT watchdog started\n");
   gint64 now = 0;
   while(g_atomic_int_get(&initialized) && !g_atomic_int_get(&stopping)) {
     janus_mutex_lock(&sessions_mutex);
@@ -243,7 +243,7 @@ void *janus_skywayiot_watchdog(void *data) {
     now = janus_get_monotonic_time();
     if(old_sessions != NULL) {
       GList *sl = old_sessions;
-      JANUS_LOG(LOG_HUGE, "Checking %d old EchoTest sessions...\n", g_list_length(old_sessions));
+      JANUS_LOG(LOG_HUGE, "Checking %d old SkywayIoT sessions...\n", g_list_length(old_sessions));
       while(sl) {
         janus_skywayiot_session *session = (janus_skywayiot_session *)sl->data;
         if(!session) {
@@ -252,7 +252,7 @@ void *janus_skywayiot_watchdog(void *data) {
         }
         if(now-session->destroyed >= 5*G_USEC_PER_SEC) {
           /* We're lazy and actually get rid of the stuff only after a few seconds */
-          JANUS_LOG(LOG_VERB, "Freeing old EchoTest session\n");
+          JANUS_LOG(LOG_VERB, "Freeing old SkywayIoT session\n");
           GList *rm = sl->next;
           old_sessions = g_list_delete_link(old_sessions, sl);
           sl = rm;
@@ -267,7 +267,7 @@ void *janus_skywayiot_watchdog(void *data) {
     janus_mutex_unlock(&sessions_mutex);
     g_usleep(500000);
   }
-  JANUS_LOG(LOG_INFO, "EchoTest watchdog stopped\n");
+  JANUS_LOG(LOG_INFO, "SkywayIoT watchdog stopped\n");
   return NULL;
 }
 
@@ -606,7 +606,7 @@ void janus_skywayiot_incoming_data(janus_plugin_session *handle, char *buf, int 
     }
 
     /* We send back the same text with a custom prefix */
-    const char *prefix = "Janus EchoTest here! You wrote: ";
+    const char *prefix = "Janus SkywayIoT here! You wrote: ";
     char *reply = g_malloc0(strlen(prefix)+len+1);
     g_snprintf(reply, strlen(prefix)+len+1, "%s%s", prefix, text);
     g_free(text);
@@ -649,17 +649,14 @@ void janus_skywayiot_slow_link(janus_plugin_session *handle, int uplink, int vid
       gateway->relay_rtcp(handle, 1, rtcpbuf, 24);
       /* As a last thing, notify the user about this */
       json_t *event = json_object();
-      json_object_set_new(event, "echotest", json_string("event"));
+      json_object_set_new(event, "skywayiot", json_string("event"));
       json_t *result = json_object();
       json_object_set_new(result, "status", json_string("slow_link"));
       json_object_set_new(result, "bitrate", json_integer(session->bitrate));
       json_object_set_new(event, "result", result);
-      char *event_text = json_dumps(event, JSON_INDENT(3) | JSON_PRESERVE_ORDER);
-      json_decref(event);
-      json_decref(result);
-      event = NULL;
       gateway->push_event(session->handle, &janus_skywayiot_plugin, NULL, event, NULL);
-      g_free(event_text);
+      /* We don't need the event anymore */
+      json_decref(event);
     }
   }
 }
@@ -679,14 +676,11 @@ void janus_skywayiot_hangup_media(janus_plugin_session *handle) {
     return;
   /* Send an event to the browser and tell it's over */
   json_t *event = json_object();
-  json_object_set_new(event, "echotest", json_string("event"));
+  json_object_set_new(event, "skywayiot", json_string("event"));
   json_object_set_new(event, "result", json_string("done"));
-  char *event_text = json_dumps(event, JSON_INDENT(3) | JSON_PRESERVE_ORDER);
-  json_decref(event);
-  JANUS_LOG(LOG_VERB, "Pushing event: %s\n", event_text);
   int ret = gateway->push_event(handle, &janus_skywayiot_plugin, NULL, event, NULL);
-  JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
-  g_free(event_text);
+  JANUS_LOG(LOG_VERB, "  >> Pushing event: %d (%s)\n", ret, janus_get_api_error(ret));
+  json_decref(event);
   /* Get rid of the recorders, if available */
   if(session->arc) {
     janus_recorder_close(session->arc);
@@ -710,7 +704,7 @@ void janus_skywayiot_hangup_media(janus_plugin_session *handle) {
 
 /* Thread to handle incoming messages */
 static void *janus_skywayiot_handler(void *data) {
-  JANUS_LOG(LOG_VERB, "Joining EchoTest handler thread\n");
+  JANUS_LOG(LOG_VERB, "Joining SkywayIoT handler thread\n");
   janus_skywayiot_message *msg = NULL;
   int error_code = 0;
   char *error_cause = g_malloc0(512);
@@ -868,15 +862,15 @@ static void *janus_skywayiot_handler(void *data) {
             session->arc = janus_recorder_create(NULL, 0, filename);
             if(session->arc == NULL) {
               /* FIXME We should notify the fact the recorder could not be created */
-              JANUS_LOG(LOG_ERR, "Couldn't open an audio recording file for this EchoTest user!\n");
+              JANUS_LOG(LOG_ERR, "Couldn't open an audio recording file for this SkywayIoT user!\n");
             }
           } else {
             /* Build a filename */
-            g_snprintf(filename, 255, "echotest-%p-%"SCNi64"-audio", session, now);
+            g_snprintf(filename, 255, "skywayiot-%p-%"SCNi64"-audio", session, now);
             session->arc = janus_recorder_create(NULL, 0, filename);
             if(session->arc == NULL) {
               /* FIXME We should notify the fact the recorder could not be created */
-              JANUS_LOG(LOG_ERR, "Couldn't open an audio recording file for this EchoTest user!\n");
+              JANUS_LOG(LOG_ERR, "Couldn't open an audio recording file for this SkywayIoT user!\n");
             }
           }
         }
@@ -888,15 +882,15 @@ static void *janus_skywayiot_handler(void *data) {
             session->vrc = janus_recorder_create(NULL, 1, filename);
             if(session->vrc == NULL) {
               /* FIXME We should notify the fact the recorder could not be created */
-              JANUS_LOG(LOG_ERR, "Couldn't open an video recording file for this EchoTest user!\n");
+              JANUS_LOG(LOG_ERR, "Couldn't open an video recording file for this SkywayIoT user!\n");
             }
           } else {
             /* Build a filename */
-            g_snprintf(filename, 255, "echotest-%p-%"SCNi64"-video", session, now);
+            g_snprintf(filename, 255, "skywayiot-%p-%"SCNi64"-video", session, now);
             session->vrc = janus_recorder_create(NULL, 1, filename);
             if(session->vrc == NULL) {
               /* FIXME We should notify the fact the recorder could not be created */
-              JANUS_LOG(LOG_ERR, "Couldn't open an video recording file for this EchoTest user!\n");
+              JANUS_LOG(LOG_ERR, "Couldn't open an video recording file for this SkywayIoT user!\n");
             }
           }
           /* Send a PLI */
@@ -925,14 +919,12 @@ static void *janus_skywayiot_handler(void *data) {
     json_decref(root);
     /* Prepare JSON event */
     json_t *event = json_object();
-    json_object_set_new(event, "echotest", json_string("event"));
+    json_object_set_new(event, "skywayiot", json_string("event"));
     json_object_set_new(event, "result", json_string("ok"));
-    char *event_text = json_dumps(event, JSON_INDENT(3) | JSON_PRESERVE_ORDER);
-    json_decref(event);
-    JANUS_LOG(LOG_VERB, "Pushing event: %s\n", event_text);
     if(!msg->sdp) {
       int ret = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event, NULL);
       JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+      json_decref(event);
     } else {
       /* Forward the same offer to the gateway, to start the echo test */
       const char *type = NULL;
@@ -967,16 +959,17 @@ static void *janus_skywayiot_handler(void *data) {
         sdp = janus_string_replace(sdp, " 97", "");
         sdp = janus_string_replace(sdp, " 98", "");
       }
+      json_t *jsep = json_pack("{ssss}", "type", type, "sdp", sdp);
       /* How long will the gateway take to push the event? */
       g_atomic_int_set(&session->hangingup, 0);
       gint64 start = janus_get_monotonic_time();
-      printf("%s", sdp);
-      int res = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event, sdp);
+      int res = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event, jsep);
       JANUS_LOG(LOG_VERB, "  >> Pushing event: %d (took %"SCNu64" us)\n",
         res, janus_get_monotonic_time()-start);
       g_free(sdp);
+      json_decref(event);
+      json_decref(jsep);
     }
-    g_free(event_text);
     janus_skywayiot_message_free(msg);
     continue;
 
@@ -986,20 +979,18 @@ error:
         json_decref(root);
       /* Prepare JSON error event */
       json_t *event = json_object();
-      json_object_set_new(event, "echotest", json_string("event"));
+      json_object_set_new(event, "skywayiot", json_string("event"));
       json_object_set_new(event, "error_code", json_integer(error_code));
       json_object_set_new(event, "error", json_string(error_cause));
-      char *event_text = json_dumps(event, JSON_INDENT(3) | JSON_PRESERVE_ORDER);
-      json_decref(event);
-      JANUS_LOG(LOG_VERB, "Pushing event: %s\n", event_text);
       int ret = gateway->push_event(msg->handle, &janus_skywayiot_plugin, msg->transaction, event, NULL);
       JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
-      g_free(event_text);
       janus_skywayiot_message_free(msg);
+      /* We don't need the event anymore */
+      json_decref(event);
     }
   }
   g_free(error_cause);
-  JANUS_LOG(LOG_VERB, "Leaving EchoTest handler thread\n");
+  JANUS_LOG(LOG_VERB, "Leaving SkywayIoT handler thread\n");
   return NULL;
 }
 
