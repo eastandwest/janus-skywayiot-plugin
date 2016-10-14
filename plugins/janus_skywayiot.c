@@ -751,7 +751,7 @@ static void *janus_skywayiot_handler(void *data) {
     json_error_t error;
     root = json_loads(msg->message, 0, &error);
     if(!root) {
-      JANUS_LOG(LOG_ERR, "JSON error: on line %d: %s\n", error.line, error.text);
+      JANUS_LOG(LOG_ERR, "JSON error: on line %d: %s\n   %s\n", error.line, error.text, msg->message);
       error_code = JANUS_SKYWAYIOT_ERROR_INVALID_JSON;
       g_snprintf(error_cause, 512, "JSON error: on line %d: %s", error.line, error.text);
       goto error;
