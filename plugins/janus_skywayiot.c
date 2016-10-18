@@ -18,7 +18,7 @@
  * REMB messages before sending them back, in order to trick the peer into
  * thinking the available bandwidth is different).
  *
- * \section echoapi Echo Test API
+ * \section echoapi Skyway IoT API
  *
  * There's a single unnamed request you can send and it's asynchronous,
  * which means all responses (successes and errors) will be delivered
@@ -400,7 +400,7 @@ void janus_skywayiot_destroy_session(janus_plugin_session *handle, int *error) {
   *error = -2;
   return;
  }
- JANUS_LOG(LOG_VERB, "Removing Echo Test session...\n");
+ JANUS_LOG(LOG_VERB, "Removing SkyWay IoT session...\n");
  janus_mutex_lock(&sessions_mutex);
  if(!session->destroyed) {
   session->destroyed = janus_get_monotonic_time();
@@ -458,6 +458,31 @@ struct janus_plugin_result *janus_skywayiot_handle_message(janus_plugin_session 
  return janus_plugin_result_new(JANUS_PLUGIN_OK_WAIT, "I'm taking my time!", NULL);
 }
 
+typedef struct my_struct {
+	guint64 handle_id;
+	char* mesg;
+} my_struct;
+
+static void show(gpointer key, gpointer value, gpointer data) {
+	janus_plugin_session *handle = (janus_plugin_session *)key;
+ 	janus_skywayiot_session *session = (janus_skywayiot_session *)value;
+
+	guint64 handle_id = (guint64)handle;
+	my_struct *search = (my_struct *)data;
+
+	printf("[%ld, %ld] %s\n", handle_id, search->handle_id, search->mesg );
+
+	if(search->handle_id == handle_id) {
+		gboolean has_audio = session->has_audio;
+		gboolean has_video = session->has_video;
+		gboolean has_data = session->has_data;
+
+	 	printf("[%ld]matched!!!  has_video => %d, has_audio => %d, has_data => %d\n", handle_id, has_video, has_audio, has_data);
+	}
+
+
+}
+
 void janus_skywayiot_setup_media(janus_plugin_session *handle) {
  JANUS_LOG(LOG_INFO, "WebRTC media is now available\n");
  if(g_atomic_int_get(&stopping) || !g_atomic_int_get(&initialized))
@@ -469,6 +494,20 @@ void janus_skywayiot_setup_media(janus_plugin_session *handle) {
  }
  if(session->destroyed)
   return;
+
+ gboolean has_audio = session->has_audio;
+ gboolean has_video = session->has_video;
+ gboolean has_data = session->has_data;
+
+ char *mesg = g_strdup("abc");
+ my_struct search = {
+  handle_id: (guint64)handle,
+	mesg: mesg
+ };
+
+ g_hash_table_foreach(sessions, show, &search);
+
+ JANUS_LOG(LOG_INFO, "[%ld, %ld] WebRTC media : has_audio[%d], has_video[%d], has_data[%d]\n", (guint64)handle, (guint64)session, has_audio, has_video, has_data);
  g_atomic_int_set(&session->hangingup, 0);
  /* We really don't care, as we only send RTP/RTCP we get in the first place back anyway */
 }
