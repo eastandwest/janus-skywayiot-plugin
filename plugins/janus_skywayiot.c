@@ -86,6 +86,7 @@
 #include "plugin.h"
 
 #include <jansson.h>
+#include <netdb.h>
 
 #include "../debug.h"
 #include "../apierror.h"
@@ -165,7 +166,9 @@ static janus_callbacks *gateway = NULL;
 static GThread *handler_thread;
 static GThread *watchdog;
 static void *janus_skywayiot_handler(void *data);
-static int create_skywayiot_extinterface(int dataport, char *mediaendpoint, int mediaport, char *listenaddr);
+static int create_data_receiver(char *data_recv_addr, int data_recv_port);
+static int create_data_sender(char *data_send_dest,   int data_send_port);
+static int create_media_sender(char *media_recv_addr, int media_recv_port);
 
 static void *thread_receive_external_data(void *data);
 
@@ -205,10 +208,13 @@ typedef struct janus_skywayiot_session {
 static GHashTable *sessions;
 static GList *old_sessions;
 static janus_mutex sessions_mutex;
-int media_fd; /* socket for external media stream */
-int data_fd;  /* socket for external data stream */
-struct sockaddr_in g_media_remaddr;
-struct sockaddr_in g_data_remaddr;
+
+int data_recv_fd;  /* socket for external data stream */
+int data_send_fd;  /* socket for external data stream */
+int media_send_fd; /* socket for external media stream */
+
+struct sockaddr_in g_data_sender;
+struct sockaddr_in g_media_sender;
 
 static void janus_skywayiot_message_free(janus_skywayiot_message *msg) {
  if(!msg || msg == &exit_message)
@@ -305,20 +311,30 @@ int janus_skywayiot_init(janus_callbacks *callback, const char *config_path) {
 	 }
 
 	 JANUS_LOG(LOG_INFO, "config:: name of category '%s'\n", cat->name);
-	 janus_config_item *dataport = janus_config_get_item(cat, "dataport");
-	 janus_config_item *mediaendpoint = janus_config_get_item(cat, "mediaendpoint");
-	 janus_config_item *mediaport = janus_config_get_item(cat, "mediaport");
-	 janus_config_item *listenaddr = janus_config_get_item(cat, "listenaddr");
 
-	 if(dataport == NULL || dataport->value == NULL
-			 || mediaendpoint == NULL || mediaendpoint->value == NULL
-			 || mediaport == NULL || mediaport->value == NULL
-			 || listenaddr == NULL || listenaddr->value == NULL) {
+	 janus_config_item *data_recv_port = janus_config_get_item(cat, "data_recv_port");
+	 janus_config_item *data_recv_addr = janus_config_get_item(cat, "data_recv_addr");
+
+	 janus_config_item *data_send_port = janus_config_get_item(cat, "data_send_port");
+	 janus_config_item *data_send_dest = janus_config_get_item(cat, "data_send_dest");
+
+	 janus_config_item *media_send_port = janus_config_get_item(cat, "media_send_port");
+	 janus_config_item *media_send_dest = janus_config_get_item(cat, "media_send_dest");
+
+	 if(data_recv_port == NULL || data_recv_port->value == NULL
+			 || data_recv_addr == NULL || data_recv_addr->value == NULL
+			 || data_send_port == NULL || data_send_port->value == NULL
+			 || data_send_dest == NULL || data_send_dest->value == NULL
+			 || media_send_port == NULL || media_send_port->value == NULL
+			 || media_send_dest == NULL || media_send_dest->value == NULL) {
 		 JANUS_LOG(LOG_WARN, "  -- Invalid dataport, mediaport, listenaddr, we'll skip opening '%s'. \n", cat->name);
 		 cl = cl->next;
 		 continue;
 	 } else {
-		create_skywayiot_extinterface(atoi(dataport->value), (char *)mediaendpoint->value, atoi(mediaport->value), (char *)listenaddr->value);
+		create_data_receiver( (char *)data_recv_addr->value, atoi(data_recv_port->value) );
+		create_data_sender( (char *)data_send_dest->value, atoi(data_send_port->value) );
+		create_media_sender( (char *)media_send_dest->value, atoi(media_send_port->value) );
+
 		cl = cl->next;
 	 }
  }
@@ -573,24 +589,27 @@ void janus_skywayiot_incoming_rtp(janus_plugin_session *handle, int video, char 
   if(session->destroyed)
    return;
   if((!video && session->audio_active) || (video && session->video_active)) {
- 		char* ext_data;
+ 		// char* ext_data;
+		socklen_t addrlen = sizeof(g_media_sender);
+
+		/*
 		int id_len = sizeof(guint64);
 		guint64 handle_id = (guint64)handle;
-		socklen_t addrlen = sizeof(g_media_remaddr);
-
  		ext_data = (char *)malloc( id_len + len );
 		memcpy(ext_data, &handle_id, id_len);
 		memcpy(ext_data + id_len, buf, len);
+		*/
 
-		if((void *)&g_media_remaddr != NULL) {
-			sendto(media_fd, ext_data, (id_len + len), 0, (struct sockaddr *)&g_media_remaddr, addrlen);
+		if((void *)&g_media_sender != NULL) {
+			sendto(media_send_fd, buf, len, 0, (struct sockaddr *)&g_media_sender, addrlen);
 		}
-		g_free(ext_data);
+		// g_free(ext_data);
 
    /* Save the frame if we're recording */
-   janus_recorder_save_frame(video ? session->vrc : session->arc, buf, len);
+   // janus_recorder_save_frame(video ? session->vrc : session->arc, buf, len);
    /* Send the frame back */
-   gateway->relay_rtp(handle, video, buf, len);
+	 /* todo: remove */
+   // gateway->relay_rtp(handle, video, buf, len);
   }
  }
 }
@@ -631,31 +650,16 @@ void janus_skywayiot_incoming_data(janus_plugin_session *handle, char *buf, int 
  	char* ext_data;
 	int id_len = sizeof(guint64);
 	guint64 handle_id = (guint64)handle;
-	socklen_t addrlen = sizeof(g_data_remaddr);
+	socklen_t addrlen = sizeof(g_data_sender);
 
  	ext_data = (char *)malloc( id_len + len );
 	memcpy(ext_data, &handle_id, id_len);
 	memcpy(ext_data + id_len, buf, len);
 
-	if((void *)&g_data_remaddr != NULL) {
-		sendto(data_fd, ext_data, (id_len + len), 0, (struct sockaddr *)&g_data_remaddr, addrlen);
+	if((void *)&g_data_sender != NULL) {
+		sendto(data_send_fd, ext_data, (id_len + len), 0, (struct sockaddr *)&g_data_sender, addrlen);
 	}
 	g_free(ext_data);
-
-
-  char *text = g_malloc0(len+1);
-  memcpy(text, buf, len);
-  *(text+len) = '\0';
-  JANUS_LOG(LOG_VERB, "Got a DataChannel message (%zu bytes) to bounce back: %s\n", strlen(text), text);
-  /* Save the frame if we're recording */
-  janus_recorder_save_frame(session->drc, text, strlen(text));
-  /* We send back the same text with a custom prefix */
-  const char *prefix = "Janus SkywayIoT here! You wrote: ";
-  char *reply = g_malloc0(strlen(prefix)+len+1);
-  g_snprintf(reply, strlen(prefix)+len+1, "%s%s", prefix, text);
-  g_free(text);
-  gateway->relay_data(handle, reply, strlen(reply));
-  g_free(reply);
  }
 }
 
@@ -1066,42 +1070,28 @@ error:
  return NULL;
 }
 
-static int create_skywayiot_extinterface(int dataport, char *mediaendpoint, int mediaport, char *listenaddr) {
-	JANUS_LOG(LOG_INFO, "create external interface : dataport = %d, mediaendpoint + %s, mediaport = %d, listenaddr = %s\n", dataport, mediaendpoint, mediaport, listenaddr);
+static int create_data_receiver(char *addr, int port) {
+	JANUS_LOG(LOG_INFO, "create data receiver: listener address %s, port %d\n", addr, port);
 
-	struct sockaddr_in data_sockaddr;      /* sockaddr for data channel */
-
-	/* create a UDP socket for ext interface of data channel*/
-	if ((data_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-		JANUS_LOG(LOG_WARN, "cannot create socket for ext interface of data channel\n");
+	/* create a UDP socket for data receiver (it will be transfered via WebRTC DataChannel  */
+	if ((data_recv_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+		JANUS_LOG(LOG_WARN, "cannot create socket for data receiver\n");
 		return -1;
 	}
 
+	struct sockaddr_in data_sockaddr;      /* sockaddr for data channel */
 	/* bind the socket to any valid IP address and a specific port */
 	memset((char *)&data_sockaddr, 0, sizeof(data_sockaddr));
 	data_sockaddr.sin_family = AF_INET;
-	data_sockaddr.sin_addr.s_addr = htonl(inet_addr(listenaddr));
-	data_sockaddr.sin_port = htons(dataport);
+	data_sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	data_sockaddr.sin_port = htons(port);
 
-	if (bind(data_fd, (struct sockaddr *)&data_sockaddr, sizeof(data_sockaddr)) < 0) {
-		JANUS_LOG(LOG_WARN, "bind failed for ext interface of data channel\n");
+	if (bind(data_recv_fd, (struct sockaddr *)&data_sockaddr, sizeof(data_sockaddr)) < 0) {
+		JANUS_LOG(LOG_WARN, "bind failed for data receiver\n");
 		return -1;
 	}
 
-	/* create a UDP socket for ext interface of media channel*/
-	if ( (media_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
-		JANUS_LOG(LOG_WARN, "cannot create socket for ext interface of media channel\n");
-		return -1;
-	}
-
-	/* set media endpoint address and port */
-
-	memset((char *)&g_media_remaddr, 0, sizeof(g_media_remaddr));
-	g_media_remaddr.sin_family = AF_INET;
-	g_media_remaddr.sin_addr.s_addr = htonl(inet_addr(mediaendpoint));
-	g_media_remaddr.sin_port = htons(mediaport);
-
-	JANUS_LOG(LOG_INFO, "succeed to create ext interface both data and media channel\n");
+	JANUS_LOG(LOG_INFO, "succeed to create socket for data receiver\n");
 
 	/* create thread to receive udp datagram for each channel */
 	GError *error = NULL;
@@ -1113,25 +1103,75 @@ static int create_skywayiot_extinterface(int dataport, char *mediaendpoint, int 
 	return 0;
 }
 
+static int create_data_sender(char *addr, int port) {
+	JANUS_LOG(LOG_INFO, "create data sender: destination address %s, port %d\n", addr, port);
+
+	/* create a UDP socket for data sender (it was received via WebRTC DataChannel  */
+	if ((data_send_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+		JANUS_LOG(LOG_WARN, "cannot create socket for data sender\n");
+		return -1;
+	}
+
+	/* bind the socket to any valid IP address and a specific port */
+	struct hostent *server;
+
+	server = gethostbyname(addr);
+
+	memset((char *)&g_data_sender, 0, sizeof(g_data_sender));
+	g_data_sender.sin_family = AF_INET;
+	bcopy((char *)server->h_addr, (char *)&g_data_sender.sin_addr.s_addr, server->h_length);
+	g_data_sender.sin_port = htons(port);
+
+	JANUS_LOG(LOG_INFO, "succeed to create socket for data sender\n");
+	return 0;
+}
+
+static int create_media_sender(char *addr, int port) {
+	JANUS_LOG(LOG_INFO, "create media sender: destination address %s, port %d\n", addr, port);
+
+	/* create a UDP socket for data sender (it was received via WebRTC DataChannel  */
+	if ((media_send_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+		JANUS_LOG(LOG_WARN, "cannot create socket for media sender\n");
+		return -1;
+	}
+
+	/* bind the socket to any valid IP address and a specific port */
+	struct hostent *server;
+
+	server = gethostbyname(addr);
+
+	memset((char *)&g_media_sender, 0, sizeof(g_media_sender));
+	g_media_sender.sin_family = AF_INET;
+	bcopy((char *)server->h_addr, (char *)&g_media_sender.sin_addr.s_addr, server->h_length);
+	g_media_sender.sin_port = htons(port);
+
+	JANUS_LOG(LOG_INFO, "succeed to create socket for media sender\n");
+	return 0;
+}
+
+
+
+
+
 static void *thread_receive_external_data(void *data /* to avoid warning */) {
 	char buff[1500];
 	int bytes_recv;
 
-	socklen_t addr_len = sizeof(g_data_remaddr);
 
 	guint64 handle_id;
 	int handle_id_len = sizeof(handle_id);
 	int data_len = 0;
+	struct sockaddr_in addr;
+	socklen_t addr_len = sizeof(addr);
+
 	data_with_handleid parsed = {
 		handle_id: 0,
 		data:      (char *) NULL,
 		data_len:  0
 	};
 
-
-
 	while(1 /* fixme: detect plugin termination */ ) {
-		bytes_recv = recvfrom(data_fd, buff,  1500, 0, (struct sockaddr *)&g_data_remaddr, &addr_len);
+		bytes_recv = recvfrom(data_recv_fd, buff,  1500, 0, (struct sockaddr *)&addr, &addr_len);
 
 		if(bytes_recv > handle_id_len) {
 			memcpy(&handle_id, buff, (size_t)handle_id_len);
