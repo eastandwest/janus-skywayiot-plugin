@@ -1,3 +1,8 @@
+# This repository is deprecated. We moved to [new project site](https://github.com/nttcom/skyway-iot-sdk).
+
+
+
+
 # prepare for development
 
 ## version 0.4
